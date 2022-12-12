@@ -1,48 +1,82 @@
+import dataclasses
 import re
 import math
 from enum import Enum
+from dataclasses import dataclass
 import numpy as np
 from PIL import Image, ImageDraw
+
+DEBUG_MODE = True
 
 # region CustomMath
 class CustomMath:
     @staticmethod
-    def multiply(a: tuple, b: tuple) -> tuple: return tuple(np.multiply(a, b))
+    def add(a: tuple, b) -> tuple: return tuple(np.add(a, b))
     @staticmethod
-    def divide(a: tuple, b: tuple) -> tuple: return tuple(np.divide(a, b))
+    def subtract(a: tuple, b) -> tuple: return tuple(np.subtract(a, b))
+    @staticmethod
+    def multiply(a: tuple, b) -> tuple: return tuple(np.multiply(a, b))
+    @staticmethod
+    def divide(a: tuple, b) -> tuple: return tuple(np.divide(a, b))
 
 cm = CustomMath
 # endregion
 
 # region Model
+@dataclass
 class ModelViewData:
-    def __init__(self): ...
+    chests: list
+
 
 class Model:
+    # region Chests
+    class ChestBase:
+        def __init__(self, player_index, position, direction):
+            self.player_index = player_index
+            self.position = position
+            self.direction = direction
+
+        def get_moves(self, occupied_positions): ...
+
+    class Pawn(ChestBase):
+        # def __init__(self, identifier, direction):
+        #     super().__init__(identifier, direction)
+
+        def get_moves(self, occupied_positions):
+            moves = []
+            for position in ((1, 1), (-1, 1)):
+                if position not in occupied_positions: moves.append(position)
+            return moves
+
+    class Queen(ChestBase): ...
+    # endregion
+
+    chests = [Pawn(0, (1, 0), (0, -1)), Pawn(0, (3, 0), (0, -1))]
+
     def __init__(self, view):
         self.view = view
 
+        self.view.update(ModelViewData(self.chests))
+
     def manipulate(self, command):
-        view_data = ModelViewData()
-        self.view.update(view_data)
+        self.view.update(ModelViewData(self.chests))
 # endregion
 
 # region View
 class ViewColors:
     bg = (242, 247, 161, 255)
-    border = (70, 194, 203, 255)
-    cell_border = (70, 194, 203, 255)
     cell_bg0 = (130, 205, 71, 255)
     cell_bg1 = (84, 180, 53, 255)
 
+class ViewImages:
+    chest0 = Image.open('images/pawn_00.png')
+
 class View:
-    field_size = (10, 10)
-    cell_size_px = (50, 50)
+    # field_size = (10, 10)
+    chest_size_by_cell = 0.8
 
     main_image_source = 'images/main.png'
     field_image_source = 'images/field.png'
-    field_image_lines_width_px = 10
-    field_border_width_px = 10
 
     @staticmethod
     def draw_broken_line(draw, points, fill=None, width=0):
@@ -65,43 +99,45 @@ class View:
             width=width * 2
         )
 
-    def draw_field_image(self):
-        field_image = Image.new(mode="RGBA", size=self.field_size_px)
+    def draw_field_image(self, size):
+        field_image = Image.new(mode="RGBA", size=size)
         draw = ImageDraw.Draw(field_image)
 
-        a = cm.divide(field_image.size, self.field_size)
         for x in range(self.field_size[0]):
             for y in range(self.field_size[1]):
-                x_px, y_px = x*a[0], y*a[1]
+                xy_px = cm.multiply(self.cell_size_px, (x, y))
                 cell_bg_color = ViewColors.cell_bg0 if (x + y) % 2 == 0 else ViewColors.cell_bg1
-                draw.rectangle((x_px, y_px, x_px+a[0], y_px+a[1]), cell_bg_color)
+                draw.rectangle(
+                    (xy_px[0], xy_px[1], xy_px[0]+self.cell_size_px[0], xy_px[1]+self.cell_size_px[1]),
+                    cell_bg_color
+                )
 
-        def line(xy): draw.line(xy, ViewColors.cell_border, self.field_image_lines_width_px)
-        distance_between_lines = cm.divide(field_image.size, self.field_size)
-        for x in range(self.field_size[0] - 1):
-            position_x = x * distance_between_lines[0] + distance_between_lines[0]
-            line((position_x, 0, position_x, field_image.size[1]))
-        for y in range(self.field_size[1] - 1):
-            position_y = y * distance_between_lines[1] + distance_between_lines[1]
-            line((0, position_y, field_image.size[0], position_y))
-
-        View.draw_border(draw, field_image.size, ViewColors.border, self.field_border_width_px)
         return field_image
 
-    def draw_main_image(self):
-        main_image = Image.new(mode="RGBA", size=self.field_size_px, color=ViewColors.bg)
-        return main_image
+    # def draw_main_image(self):
+    #     main_image = Image.new(mode="RGBA", size=self.field_image.size, color=ViewColors.bg)
+    #     return main_image
 
-    def __init__(self):
-        self.field_size_px = cm.multiply(self.cell_size_px, self.field_size)
-        self.field_image = self.draw_field_image()
-        self.main_image = self.draw_main_image()
-        self.main_image.save(self.main_image_source)
+    def __init__(self, field_size):
+        field_size_px = (512, 512)
 
-    def update(self, data):
-        print(f'png {data}')
-        # self.main_image.show()
-        self.field_image.show()
+        self.field_size = field_size
+        self.cell_size_px = cm.divide(field_size_px, self.field_size)
+        self.field_image = self.draw_field_image(size=field_size_px)
+
+        ViewImages.chest0.thumbnail(cm.multiply(self.cell_size_px, self.chest_size_by_cell))
+
+        if DEBUG_MODE: ViewImages.chest0 = Image.eval(ViewImages.chest0, lambda x: x + 100)
+
+    def update(self, data: ModelViewData):
+        out_image = self.field_image
+
+        chest_of_cell_center_px = cm.divide(cm.subtract(self.cell_size_px, ViewImages.chest0.size), 2)
+        for chest in data.chests:
+            position_px = cm.add(cm.multiply(chest.position, self.cell_size_px), chest_of_cell_center_px)
+            out_image.alpha_composite(ViewImages.chest0, tuple(map(int, position_px)))
+
+        out_image.show()
 
 # endregion
 
@@ -120,10 +156,8 @@ class ControllerConsole(ControllerBase):
 
 # region Main
 def main():
-    view = View()
-    # model = Model(view)
-    # controller = ControllerConsole(model)
-
-    view.update(...)
+    view = View((4, 4))
+    model = Model(view)
+    controller = ControllerConsole(model)
 if __name__ == '__main__': main()
 # endregion
