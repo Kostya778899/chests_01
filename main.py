@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 from PIL import Image, ImageDraw
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 # region CustomMath
 class CustomMath:
@@ -26,7 +26,8 @@ cm = CustomMath
 @dataclass
 class ModelViewData:
     chests: list
-
+    selected_chest_index: int
+    marked_cells: list
 
 class Model:
     # region Chests
@@ -52,14 +53,24 @@ class Model:
     # endregion
 
     chests = [Pawn(0, (1, 0), (0, -1)), Pawn(0, (3, 0), (0, -1))]
+    selected_chest_index = -1
+
+    def update_view(self):
+        self.view.update(ModelViewData(
+            chests=self.chests,
+            selected_chest_index=self.selected_chest_index,
+            marked_cells=[] if self.selected_chest_index == -1 else
+                self.chests[self.selected_chest_index].get_moves(self.chests),
+        ))
 
     def __init__(self, view):
         self.view = view
 
-        self.view.update(ModelViewData(self.chests))
+        self.selected_chest_index = 0
+        self.view.update(ModelViewData(self.chests, self.selected_chest_index))
 
     def manipulate(self, command):
-        self.view.update(ModelViewData(self.chests))
+        self.view.update(ModelViewData(self.chests, self.selected_chest_index))
 # endregion
 
 # region View
@@ -133,9 +144,15 @@ class View:
         out_image = self.field_image
 
         chest_of_cell_center_px = cm.divide(cm.subtract(self.cell_size_px, ViewImages.chest0.size), 2)
-        for chest in data.chests:
+        for i, chest in enumerate(data.chests):
             position_px = cm.add(cm.multiply(chest.position, self.cell_size_px), chest_of_cell_center_px)
-            out_image.alpha_composite(ViewImages.chest0, tuple(map(int, position_px)))
+            chest_image = ViewImages.chest0.copy()
+            if i == data.selected_chest_index: chest_image = Image.eval(ViewImages.chest0, lambda x: x + 120)
+
+            out_image.alpha_composite(chest_image, tuple(map(int, position_px)))
+
+        for marked_cell in data.marked_cells:
+            out_image.alpha_composite(chest_image, tuple(map(int, position_px)))
 
         out_image.show()
 
